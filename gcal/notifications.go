@@ -22,18 +22,19 @@ func (c *client) GetNotificationData(orig *remote.Notification) (*remote.Notific
 	n := *orig
 	wh := n.Webhook.(*webhook)
 
-	cal, err := c.GetDefaultCalendar()
+	cal, err := c.getDefaultGoogleCalendar()
 	if err != nil {
 		return nil, errors.Wrap(err, "gcal GetNotificationData, error getting default calendar")
 	}
 
-	reqBody := service.Events.Get(cal.ID, wh.Resource)
+	reqBody := service.Events.Get(cal.Id, wh.Resource)
 	googleEvent, err := reqBody.Do()
 	if err != nil {
 		return nil, errors.Wrap(err, "gcal GetNotificationData, error fetching event data")
 	}
 
-	event := convertGCalEventToRemoteEvent(googleEvent)
+	// All-day events start at midnight in the calendar time zone, not in UTC.
+	event := convertGCalEventToRemoteEvent(googleEvent, c.calendarLocation(cal.TimeZone))
 
 	n.Event = event
 	n.IsBare = false

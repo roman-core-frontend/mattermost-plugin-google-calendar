@@ -5,6 +5,8 @@ package gcal
 
 import (
 	"context"
+	"strings"
+	"sync"
 	"time"
 
 	"github.com/pkg/errors"
@@ -22,15 +24,29 @@ const (
 	GoogleEventBusy = "opaque"
 	GoogleEventFree = "transparent"
 
-	GoogleEventTypeDefault     = "default"
-	GoogleEventTypeOutOfOffice = "outOfOffice"
-	GoogleEventTypeFocusTime   = "focusTime"
+	GoogleEventTypeDefault         = "default"
+	GoogleEventTypeBirthday        = "birthday"
+	GoogleEventTypeFocusTime       = "focusTime"
+	GoogleEventTypeFromGmail       = "fromGmail"
+	GoogleEventTypeOutOfOffice     = "outOfOffice"
+	GoogleEventTypeWorkingLocation = "workingLocation"
 
 	GoogleResponseStatusYes   = "accepted"
 	GoogleResponseStatusMaybe = "tentative"
 	GoogleResponseStatusNo    = "declined"
 	GoogleResponseStatusNone  = "needsAction"
 )
+
+// googleListEventTypes maps the lowercased event types accepted by the eventTypes parameter of
+// Google's events.list to Google's spelling.
+var googleListEventTypes = map[string]string{
+	strings.ToLower(GoogleEventTypeDefault):         GoogleEventTypeDefault,
+	strings.ToLower(GoogleEventTypeBirthday):        GoogleEventTypeBirthday,
+	strings.ToLower(GoogleEventTypeFocusTime):       GoogleEventTypeFocusTime,
+	strings.ToLower(GoogleEventTypeFromGmail):       GoogleEventTypeFromGmail,
+	strings.ToLower(GoogleEventTypeOutOfOffice):     GoogleEventTypeOutOfOffice,
+	strings.ToLower(GoogleEventTypeWorkingLocation): GoogleEventTypeWorkingLocation,
+}
 
 var responseStatusConversion = map[string]string{
 	GoogleResponseStatusYes:   remote.EventResponseStatusAccepted,
@@ -65,10 +81,12 @@ func (c *client) GetDefaultCalendarView(_ string, start, end time.Time) ([]*remo
 		return []*remote.Event{}, nil
 	}
 
+	// All-day events start at midnight in the calendar time zone, not in UTC.
+	loc := c.calendarLocation(result.TimeZone)
 	events := []*remote.Event{}
 	for _, event := range result.Items {
 		if event.ICalUID != "" {
-			events = append(events, convertGCalEventToRemoteEvent(event))
+			events = append(events, convertGCalEventToRemoteEvent(event, loc))
 		}
 	}
 
@@ -88,25 +106,39 @@ func convertGCalEventDateTimeToRemoteDateTime(dt *calendar.EventDateTime, loc *t
 	return remote.NewDateTime(t.UTC(), "UTC")
 }
 
-// convertGCalEventToRemoteEvent converts an event, reading all-day dates as UTC.
-func convertGCalEventToRemoteEvent(event *calendar.Event) *remote.Event {
-	return convertGCalEventToRemoteEventInLocation(event, time.UTC)
-}
+// locationCache caches loaded calendar time zones by name.
+var locationCache sync.Map // map[string]*time.Location
 
-// calendarLocation returns the location of a calendar time zone, or UTC if it is unknown.
-func calendarLocation(timeZone string) *time.Location {
+// loadCalendarLocation returns the location of a calendar time zone. An empty zone is UTC.
+// If the zone cannot be loaded, it returns UTC together with the error.
+func loadCalendarLocation(timeZone string) (*time.Location, error) {
 	if timeZone == "" {
-		return time.UTC
+		return time.UTC, nil
+	}
+	if loc, ok := locationCache.Load(timeZone); ok {
+		return loc.(*time.Location), nil
 	}
 	loc, err := time.LoadLocation(timeZone)
 	if err != nil {
-		return time.UTC
+		return time.UTC, err
+	}
+	locationCache.Store(timeZone, loc)
+	return loc, nil
+}
+
+// calendarLocation returns the location of a calendar time zone, falling back to UTC with a warning
+// if the zone cannot be loaded.
+func (c *client) calendarLocation(timeZone string) *time.Location {
+	loc, err := loadCalendarLocation(timeZone)
+	if err != nil && c.Logger != nil {
+		c.Warnf("gcal: unknown calendar time zone %q, reading all-day events in UTC: %v", timeZone, err)
 	}
 	return loc
 }
 
-// convertGCalEventToRemoteEventInLocation converts an event, reading all-day dates in the given location.
-func convertGCalEventToRemoteEventInLocation(event *calendar.Event, loc *time.Location) *remote.Event {
+// convertGCalEventToRemoteEvent converts an event, reading all-day dates in the given location
+// (usually the calendar time zone).
+func convertGCalEventToRemoteEvent(event *calendar.Event, loc *time.Location) *remote.Event {
 	showAs := RemoteEventBusy
 	if event.Transparency == GoogleEventFree {
 		showAs = RemoteEventFree
@@ -137,11 +169,13 @@ func convertGCalEventToRemoteEventInLocation(event *calendar.Event, loc *time.Lo
 		}
 	}
 
+	// The engine expects an organizer with an email address, so an event without one gets an empty address.
 	organizer := &remote.Attendee{
-		EmailAddress: &remote.EmailAddress{
-			Name:    event.Organizer.Email,
-			Address: event.Organizer.Email,
-		},
+		EmailAddress: &remote.EmailAddress{},
+	}
+	if event.Organizer != nil {
+		organizer.EmailAddress.Name = event.Organizer.Email
+		organizer.EmailAddress.Address = event.Organizer.Email
 	}
 
 	responseStatus := &remote.EventResponseStatus{

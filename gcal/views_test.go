@@ -5,6 +5,7 @@ package gcal
 
 import (
 	"testing"
+	"time"
 
 	"github.com/stretchr/testify/require"
 	"google.golang.org/api/calendar/v3"
@@ -145,7 +146,7 @@ func TestConvertGCalEventToRemoteEvent(t *testing.T) {
 	} {
 		t.Run(tc.Name, func(t *testing.T) {
 			event := tc.In()
-			result := convertGCalEventToRemoteEvent(&event)
+			result := convertGCalEventToRemoteEvent(&event, time.UTC)
 			tc.Check(t, result)
 		})
 	}
