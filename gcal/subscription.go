@@ -41,7 +41,7 @@ func (c *client) CreateMySubscription(notificationURL, remoteUserID string) (*re
 		},
 	}
 
-	createSubscriptionRequest := service.Events.Watch(defaultCalendarName, reqBody).EventTypes("default")
+	createSubscriptionRequest := service.Events.Watch(defaultCalendarName, reqBody).EventTypes(GoogleEventTypeDefault)
 	googleSubscription, err := createSubscriptionRequest.Do()
 	if err != nil {
 		return nil, errors.Wrap(err, "gcal CreateMySubscription, error creating subscription")

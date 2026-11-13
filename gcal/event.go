@@ -5,7 +5,10 @@ package gcal
 
 import (
 	"context"
+	"strings"
 	"time"
+	// Time zone data for calendar time zones, in case the server has none installed.
+	_ "time/tzdata"
 
 	"github.com/pkg/errors"
 	"google.golang.org/api/calendar/v3"
@@ -54,13 +57,12 @@ func (c *client) GetEventsBetweenDates(_ string, start, end time.Time) (events [
 	ctx := context.Background()
 	service, err := calendar.NewService(ctx, option.WithHTTPClient(c.httpClient))
 	if err != nil {
-		return nil, errors.Wrap(err, "gcal CreateEvent, error creating service")
+		return nil, errors.Wrap(err, "gcal GetEventsBetweenDates, error creating service")
 	}
 
 	result, err := service.Events.
 		List(defaultCalendarName).
-		// outOfOffice and focusTime events are needed for the status rules.
-		EventTypes(GoogleEventTypeDefault, GoogleEventTypeOutOfOffice, GoogleEventTypeFocusTime).
+		EventTypes(c.statusSyncEventTypes()...).
 		TimeMin(start.Format(time.RFC3339)).
 		TimeMax(end.Format(time.RFC3339)).
 		OrderBy("startTime").
@@ -73,11 +75,31 @@ func (c *client) GetEventsBetweenDates(_ string, start, end time.Time) (events [
 		return nil, errors.Wrap(err, "error getting list of events")
 	}
 
+	// All-day events start at midnight in the calendar time zone, not in UTC.
+	loc := calendarLocation(result.TimeZone)
 	for _, evt := range result.Items {
-		events = append(events, convertGCalEventToRemoteEvent(evt))
+		events = append(events, convertGCalEventToRemoteEventInLocation(evt, loc))
 	}
 
 	return events, nil
+}
+
+// statusSyncEventTypes returns the event types to fetch for status sync and reminders:
+// default events, plus the special types (outOfOffice, focusTime) only when a status rule needs them.
+func (c *client) statusSyncEventTypes() []string {
+	types := []string{GoogleEventTypeDefault}
+	if c.conf == nil {
+		return types
+	}
+	for _, special := range []string{GoogleEventTypeOutOfOffice, GoogleEventTypeFocusTime} {
+		for _, rule := range c.conf.ParsedStatusRules {
+			if strings.EqualFold(rule.EventType, special) {
+				types = append(types, special)
+				break
+			}
+		}
+	}
+	return types
 }
 
 func convertRemoteEventToGcalEvent(in *remote.Event) *calendar.Event {
