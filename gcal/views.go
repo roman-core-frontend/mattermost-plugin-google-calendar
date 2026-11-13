@@ -47,7 +47,7 @@ func (c *client) GetDefaultCalendarView(_ string, start, end time.Time) ([]*remo
 
 	req := service.Events.
 		List(defaultCalendarName).
-		EventTypes("default").
+		EventTypes(GoogleEventTypeDefault).
 		TimeMin(start.Format(time.RFC3339)).
 		TimeMax(end.Format(time.RFC3339)).
 		SingleEvents(true).
@@ -75,10 +75,12 @@ func (c *client) GetDefaultCalendarView(_ string, start, end time.Time) ([]*remo
 	return events, nil
 }
 
-func convertGCalEventDateTimeToRemoteDateTime(dt *calendar.EventDateTime) *remote.DateTime {
+// convertGCalEventDateTimeToRemoteDateTime converts an event date or date-time to UTC.
+// All-day events only have a date, which starts at midnight in the given location (the calendar time zone).
+func convertGCalEventDateTimeToRemoteDateTime(dt *calendar.EventDateTime, loc *time.Location) *remote.DateTime {
 	// Handle all-day events
 	if len(dt.Date) > 0 {
-		t, _ := time.Parse("2006-01-02", dt.Date)
+		t, _ := time.ParseInLocation("2006-01-02", dt.Date, loc)
 		return remote.NewDateTime(t.UTC(), "UTC")
 	}
 
@@ -86,14 +88,32 @@ func convertGCalEventDateTimeToRemoteDateTime(dt *calendar.EventDateTime) *remot
 	return remote.NewDateTime(t.UTC(), "UTC")
 }
 
+// convertGCalEventToRemoteEvent converts an event, reading all-day dates as UTC.
 func convertGCalEventToRemoteEvent(event *calendar.Event) *remote.Event {
+	return convertGCalEventToRemoteEventInLocation(event, time.UTC)
+}
+
+// calendarLocation returns the location of a calendar time zone, or UTC if it is unknown.
+func calendarLocation(timeZone string) *time.Location {
+	if timeZone == "" {
+		return time.UTC
+	}
+	loc, err := time.LoadLocation(timeZone)
+	if err != nil {
+		return time.UTC
+	}
+	return loc
+}
+
+// convertGCalEventToRemoteEventInLocation converts an event, reading all-day dates in the given location.
+func convertGCalEventToRemoteEventInLocation(event *calendar.Event, loc *time.Location) *remote.Event {
 	showAs := RemoteEventBusy
 	if event.Transparency == GoogleEventFree {
 		showAs = RemoteEventFree
 	}
 
-	start := convertGCalEventDateTimeToRemoteDateTime(event.Start)
-	end := convertGCalEventDateTimeToRemoteDateTime(event.End)
+	start := convertGCalEventDateTimeToRemoteDateTime(event.Start, loc)
+	end := convertGCalEventDateTimeToRemoteDateTime(event.End, loc)
 
 	var conference *remote.Conference
 	var location *remote.Location
@@ -128,7 +148,8 @@ func convertGCalEventToRemoteEvent(event *calendar.Event) *remote.Event {
 		Response: remote.EventResponseStatusNotAnswered,
 	}
 	responseRequested := false
-	isOrganizer := false
+	// The organizer is not always listed among the attendees (e.g. events without guests).
+	isOrganizer := event.Organizer != nil && event.Organizer.Self
 
 	attendees := []*remote.Attendee{}
 	for _, attendee := range event.Attendees {
@@ -150,7 +171,7 @@ func convertGCalEventToRemoteEvent(event *calendar.Event) *remote.Event {
 			response := responseStatusConversion[attendee.ResponseStatus]
 			responseStatus.Response = response
 
-			isOrganizer = attendee.Organizer
+			isOrganizer = isOrganizer || attendee.Organizer
 		}
 	}
 
