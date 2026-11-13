@@ -5,7 +5,6 @@ package gcal
 
 import (
 	"context"
-	"strings"
 	"time"
 
 	"github.com/pkg/errors"
@@ -36,25 +35,8 @@ func (c *client) CreateEvent(in *remote.Event) (*remote.Event, error) {
 		return nil, errors.Wrap(err, "gcal CreateEvent")
 	}
 
-	return convertGCalEventToRemoteEvent(resultEvent, c.createdEventLocation(resultEvent)), nil
-}
-
-// createdEventLocation returns the location to read the all-day dates of a created event in: the event's own
-// time zone if it has one, otherwise the calendar time zone. Google leaves the time zone of date-only events
-// empty, so the calendar is fetched only for those; timed events carry their offset and do not need it.
-func (c *client) createdEventLocation(event *calendar.Event) *time.Location {
-	if event.Start.TimeZone != "" || event.Start.Date == "" {
-		return c.calendarLocation(event.Start.TimeZone)
-	}
-
-	cal, err := c.getDefaultGoogleCalendar()
-	if err != nil {
-		if c.Logger != nil {
-			c.Warnf("gcal CreateEvent: reading all-day event dates in UTC: %v", err)
-		}
-		return time.UTC
-	}
-	return c.calendarLocation(cal.TimeZone)
+	// The plugin creates events with date-times, so there are no all-day dates to read in a time zone.
+	return convertGCalEventToRemoteEvent(resultEvent, time.UTC), nil
 }
 
 func (c *client) AcceptEvent(remoteUserID, eventID string) error {
@@ -78,7 +60,6 @@ func (c *client) GetEventsBetweenDates(_ string, start, end time.Time) (events [
 
 	result, err := service.Events.
 		List(defaultCalendarName).
-		EventTypes(c.statusSyncEventTypes()...).
 		TimeMin(start.Format(time.RFC3339)).
 		TimeMax(end.Format(time.RFC3339)).
 		OrderBy("startTime").
@@ -98,25 +79,6 @@ func (c *client) GetEventsBetweenDates(_ string, start, end time.Time) (events [
 	}
 
 	return events, nil
-}
-
-// statusSyncEventTypes returns the event types to fetch for status sync and reminders:
-// default events, plus every type named by a status rule that Google's events.list accepts.
-// Other types in the rules are ignored, since Google would reject the request.
-func (c *client) statusSyncEventTypes() []string {
-	types := []string{GoogleEventTypeDefault}
-	if c.conf == nil {
-		return types
-	}
-	seen := map[string]bool{GoogleEventTypeDefault: true}
-	for _, rule := range c.conf.ParsedStatusRules {
-		eventType, ok := googleListEventTypes[strings.ToLower(rule.EventType)]
-		if ok && !seen[eventType] {
-			seen[eventType] = true
-			types = append(types, eventType)
-		}
-	}
-	return types
 }
 
 func convertRemoteEventToGcalEvent(in *remote.Event) *calendar.Event {

@@ -50,7 +50,7 @@ func TestConvertGCalEventToRemoteEvent(t *testing.T) {
 			Name: "event type is converted",
 			In: func() calendar.Event {
 				evt := createMinimalCalendarEvent()
-				evt.EventType = GoogleEventTypeOutOfOffice
+				evt.EventType = remote.EventTypeOutOfOffice
 				return evt
 			},
 			Check: func(t *testing.T, event *remote.Event) {

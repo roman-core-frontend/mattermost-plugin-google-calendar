@@ -5,7 +5,6 @@ package gcal
 
 import (
 	"context"
-	"strings"
 	"sync"
 	"time"
 
@@ -24,29 +23,11 @@ const (
 	GoogleEventBusy = "opaque"
 	GoogleEventFree = "transparent"
 
-	GoogleEventTypeDefault         = "default"
-	GoogleEventTypeBirthday        = "birthday"
-	GoogleEventTypeFocusTime       = "focusTime"
-	GoogleEventTypeFromGmail       = "fromGmail"
-	GoogleEventTypeOutOfOffice     = "outOfOffice"
-	GoogleEventTypeWorkingLocation = "workingLocation"
-
 	GoogleResponseStatusYes   = "accepted"
 	GoogleResponseStatusMaybe = "tentative"
 	GoogleResponseStatusNo    = "declined"
 	GoogleResponseStatusNone  = "needsAction"
 )
-
-// googleListEventTypes maps the lowercased event types accepted by the eventTypes parameter of
-// Google's events.list to Google's spelling.
-var googleListEventTypes = map[string]string{
-	strings.ToLower(GoogleEventTypeDefault):         GoogleEventTypeDefault,
-	strings.ToLower(GoogleEventTypeBirthday):        GoogleEventTypeBirthday,
-	strings.ToLower(GoogleEventTypeFocusTime):       GoogleEventTypeFocusTime,
-	strings.ToLower(GoogleEventTypeFromGmail):       GoogleEventTypeFromGmail,
-	strings.ToLower(GoogleEventTypeOutOfOffice):     GoogleEventTypeOutOfOffice,
-	strings.ToLower(GoogleEventTypeWorkingLocation): GoogleEventTypeWorkingLocation,
-}
 
 var responseStatusConversion = map[string]string{
 	GoogleResponseStatusYes:   remote.EventResponseStatusAccepted,
@@ -63,7 +44,7 @@ func (c *client) GetDefaultCalendarView(_ string, start, end time.Time) ([]*remo
 
 	req := service.Events.
 		List(defaultCalendarName).
-		EventTypes(GoogleEventTypeDefault).
+		EventTypes(remote.EventTypeDefault).
 		TimeMin(start.Format(time.RFC3339)).
 		TimeMax(end.Format(time.RFC3339)).
 		SingleEvents(true).
@@ -106,27 +87,41 @@ func convertGCalEventDateTimeToRemoteDateTime(dt *calendar.EventDateTime, loc *t
 	return remote.NewDateTime(t.UTC(), "UTC")
 }
 
-// locationCache caches calendar time zones by name. A zone that cannot be loaded is cached as UTC.
-var locationCache sync.Map // map[string]*time.Location
+// cachedLocation is a loaded calendar time zone, or UTC with the error if the zone cannot be loaded.
+type cachedLocation struct {
+	loc *time.Location
+	err error
+}
+
+// locationCache caches calendar time zones by name; warnedZones remembers the unknown zones already reported.
+var (
+	locationCache sync.Map // map[string]cachedLocation
+	warnedZones   sync.Map // map[string]bool
+)
 
 // calendarLocation returns the location of a calendar time zone. An empty zone is UTC. A zone that cannot be
-// loaded falls back to UTC, with a warning logged once per zone.
+// loaded falls back to UTC, with a warning logged once per zone (by the first client that has a logger).
 func (c *client) calendarLocation(timeZone string) *time.Location {
 	if timeZone == "" {
 		return time.UTC
 	}
-	if loc, ok := locationCache.Load(timeZone); ok {
-		return loc.(*time.Location)
+
+	cached, ok := locationCache.Load(timeZone)
+	if !ok {
+		loc, err := time.LoadLocation(timeZone)
+		if err != nil {
+			loc = time.UTC
+		}
+		cached, _ = locationCache.LoadOrStore(timeZone, cachedLocation{loc: loc, err: err})
 	}
 
-	loc, err := time.LoadLocation(timeZone)
-	if err != nil {
-		loc = time.UTC
+	cl := cached.(cachedLocation)
+	if cl.err != nil && c.Logger != nil {
+		if _, warned := warnedZones.LoadOrStore(timeZone, true); !warned {
+			c.Warnf("gcal: unknown calendar time zone %q, reading all-day events in UTC: %v", timeZone, cl.err)
+		}
 	}
-	if _, loaded := locationCache.LoadOrStore(timeZone, loc); !loaded && err != nil && c.Logger != nil {
-		c.Warnf("gcal: unknown calendar time zone %q, reading all-day events in UTC: %v", timeZone, err)
-	}
-	return loc
+	return cl.loc
 }
 
 // convertGCalEventToRemoteEvent converts an event, reading all-day dates in the given location
