@@ -111,31 +111,24 @@ func convertGCalEventDateTimeToRemoteDateTime(dt *calendar.EventDateTime, loc *t
 	return remote.NewDateTime(t.UTC(), "UTC")
 }
 
-// locationCache caches loaded calendar time zones by name.
+// locationCache caches calendar time zones by name. A zone that cannot be loaded is cached as UTC.
 var locationCache sync.Map // map[string]*time.Location
 
-// loadCalendarLocation returns the location of a calendar time zone. An empty zone is UTC.
-// If the zone cannot be loaded, it returns UTC together with the error.
-func loadCalendarLocation(timeZone string) (*time.Location, error) {
+// calendarLocation returns the location of a calendar time zone. An empty zone is UTC. A zone that cannot be
+// loaded falls back to UTC, with a warning logged once per zone.
+func (c *client) calendarLocation(timeZone string) *time.Location {
 	if timeZone == "" {
-		return time.UTC, nil
+		return time.UTC
 	}
 	if loc, ok := locationCache.Load(timeZone); ok {
-		return loc.(*time.Location), nil
+		return loc.(*time.Location)
 	}
+
 	loc, err := time.LoadLocation(timeZone)
 	if err != nil {
-		return time.UTC, err
+		loc = time.UTC
 	}
-	locationCache.Store(timeZone, loc)
-	return loc, nil
-}
-
-// calendarLocation returns the location of a calendar time zone, falling back to UTC with a warning
-// if the zone cannot be loaded.
-func (c *client) calendarLocation(timeZone string) *time.Location {
-	loc, err := loadCalendarLocation(timeZone)
-	if err != nil && c.Logger != nil {
+	if _, loaded := locationCache.LoadOrStore(timeZone, loc); !loaded && err != nil && c.Logger != nil {
 		c.Warnf("gcal: unknown calendar time zone %q, reading all-day events in UTC: %v", timeZone, err)
 	}
 	return loc
