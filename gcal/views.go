@@ -22,6 +22,10 @@ const (
 	GoogleEventBusy = "opaque"
 	GoogleEventFree = "transparent"
 
+	GoogleEventTypeDefault     = "default"
+	GoogleEventTypeOutOfOffice = "outOfOffice"
+	GoogleEventTypeFocusTime   = "focusTime"
+
 	GoogleResponseStatusYes   = "accepted"
 	GoogleResponseStatusMaybe = "tentative"
 	GoogleResponseStatusNo    = "declined"
@@ -160,6 +164,7 @@ func convertGCalEventToRemoteEvent(event *calendar.Event) *remote.Event {
 		BodyPreview:       event.Description, // GCAL TODO no body preview available?
 		IsAllDay:          isAllDay,
 		ShowAs:            showAs,
+		EventType:         event.EventType,
 		Weblink:           event.HtmlLink,
 		Start:             start,
 		End:               end,
