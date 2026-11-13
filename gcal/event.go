@@ -36,13 +36,25 @@ func (c *client) CreateEvent(in *remote.Event) (*remote.Event, error) {
 		return nil, errors.Wrap(err, "gcal CreateEvent")
 	}
 
-	// All-day dates are read in the event's own time zone, if it has one.
-	loc := time.UTC
-	if resultEvent.Start != nil {
-		loc = c.calendarLocation(resultEvent.Start.TimeZone)
+	return convertGCalEventToRemoteEvent(resultEvent, c.createdEventLocation(resultEvent)), nil
+}
+
+// createdEventLocation returns the location to read the all-day dates of a created event in: the event's own
+// time zone if it has one, otherwise the calendar time zone. Google leaves the time zone of date-only events
+// empty, so the calendar is fetched only for those; timed events carry their offset and do not need it.
+func (c *client) createdEventLocation(event *calendar.Event) *time.Location {
+	if event.Start.TimeZone != "" || event.Start.Date == "" {
+		return c.calendarLocation(event.Start.TimeZone)
 	}
 
-	return convertGCalEventToRemoteEvent(resultEvent, loc), nil
+	cal, err := c.getDefaultGoogleCalendar()
+	if err != nil {
+		if c.Logger != nil {
+			c.Warnf("gcal CreateEvent: reading all-day event dates in UTC: %v", err)
+		}
+		return time.UTC
+	}
+	return c.calendarLocation(cal.TimeZone)
 }
 
 func (c *client) AcceptEvent(remoteUserID, eventID string) error {
