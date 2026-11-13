@@ -4,6 +4,9 @@
 package main
 
 import (
+	// Time zone data for calendar time zones, in case the server has none installed.
+	_ "time/tzdata"
+
 	mattermostplugin "github.com/mattermost/mattermost/server/public/plugin"
 
 	"github.com/mattermost/mattermost-plugin-mscalendar/calendar/config"

@@ -7,8 +7,6 @@ import (
 	"context"
 	"strings"
 	"time"
-	// Time zone data for calendar time zones, in case the server has none installed.
-	_ "time/tzdata"
 
 	"github.com/pkg/errors"
 	"google.golang.org/api/calendar/v3"
@@ -38,7 +36,13 @@ func (c *client) CreateEvent(in *remote.Event) (*remote.Event, error) {
 		return nil, errors.Wrap(err, "gcal CreateEvent")
 	}
 
-	return convertGCalEventToRemoteEvent(resultEvent), nil
+	// All-day dates are read in the event's own time zone, if it has one.
+	loc := time.UTC
+	if resultEvent.Start != nil {
+		loc = c.calendarLocation(resultEvent.Start.TimeZone)
+	}
+
+	return convertGCalEventToRemoteEvent(resultEvent, loc), nil
 }
 
 func (c *client) AcceptEvent(remoteUserID, eventID string) error {
@@ -76,27 +80,28 @@ func (c *client) GetEventsBetweenDates(_ string, start, end time.Time) (events [
 	}
 
 	// All-day events start at midnight in the calendar time zone, not in UTC.
-	loc := calendarLocation(result.TimeZone)
+	loc := c.calendarLocation(result.TimeZone)
 	for _, evt := range result.Items {
-		events = append(events, convertGCalEventToRemoteEventInLocation(evt, loc))
+		events = append(events, convertGCalEventToRemoteEvent(evt, loc))
 	}
 
 	return events, nil
 }
 
 // statusSyncEventTypes returns the event types to fetch for status sync and reminders:
-// default events, plus the special types (outOfOffice, focusTime) only when a status rule needs them.
+// default events, plus every type named by a status rule that Google's events.list accepts.
+// Other types in the rules are ignored, since Google would reject the request.
 func (c *client) statusSyncEventTypes() []string {
 	types := []string{GoogleEventTypeDefault}
 	if c.conf == nil {
 		return types
 	}
-	for _, special := range []string{GoogleEventTypeOutOfOffice, GoogleEventTypeFocusTime} {
-		for _, rule := range c.conf.ParsedStatusRules {
-			if strings.EqualFold(rule.EventType, special) {
-				types = append(types, special)
-				break
-			}
+	seen := map[string]bool{GoogleEventTypeDefault: true}
+	for _, rule := range c.conf.ParsedStatusRules {
+		eventType, ok := googleListEventTypes[strings.ToLower(rule.EventType)]
+		if ok && !seen[eventType] {
+			seen[eventType] = true
+			types = append(types, eventType)
 		}
 	}
 	return types

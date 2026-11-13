@@ -30,9 +30,20 @@ func (c *client) GetCalendars(remoteUserID string) ([]*remote.Calendar, error) {
 
 // GetDefaultCalendar returns the default calendar for the user
 func (c *client) GetDefaultCalendar() (*remote.Calendar, error) {
+	googleCal, err := c.getDefaultGoogleCalendar()
+	if err != nil {
+		return nil, err
+	}
+
+	return convertGoogleCalendarToRemoteCalendar(googleCal), nil
+}
+
+// getDefaultGoogleCalendar returns the user's default Google calendar, including its time zone,
+// which the remote calendar does not carry.
+func (c *client) getDefaultGoogleCalendar() (*calendar.Calendar, error) {
 	service, err := calendar.NewService(context.Background(), option.WithHTTPClient(c.httpClient))
 	if err != nil {
-		return nil, errors.Wrap(err, "gcal GetNotificationData, error creating service")
+		return nil, errors.Wrap(err, "gcal GetDefaultCalendar, error creating service")
 	}
 
 	req := service.Calendars.Get(defaultCalendarName)
@@ -41,9 +52,7 @@ func (c *client) GetDefaultCalendar() (*remote.Calendar, error) {
 		return nil, errors.Wrap(err, "gcal GetDefaultCalendar, error getting calendar")
 	}
 
-	remoteCal := convertGoogleCalendarToRemoteCalendar(googleCal)
-
-	return remoteCal, nil
+	return googleCal, nil
 }
 
 // convertGoogleCalendarToRemoteCalendar converts a google calendar to a local representation calendar
