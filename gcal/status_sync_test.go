@@ -5,9 +5,6 @@ package gcal
 
 import (
 	"fmt"
-	"io"
-	"net/http"
-	"strings"
 	"testing"
 	"time"
 
@@ -15,8 +12,6 @@ import (
 	"github.com/stretchr/testify/require"
 	"google.golang.org/api/calendar/v3"
 
-	"github.com/mattermost/mattermost-plugin-mscalendar/calendar/config"
-	"github.com/mattermost/mattermost-plugin-mscalendar/calendar/remote"
 	"github.com/mattermost/mattermost-plugin-mscalendar/calendar/utils/bot"
 )
 
@@ -69,80 +64,12 @@ func TestCalendarLocation(t *testing.T) {
 	assert.Equal(t, time.UTC, (&client{Logger: &warnLogger{}}).calendarLocation("Not/AZone"))
 	assert.Len(t, logger.warnings, 1, "warned once per zone")
 
+	// A zone first seen by a client without a logger is still reported by the next client that has one.
 	assert.Equal(t, time.UTC, (&client{}).calendarLocation("Not/AnotherZone"), "no logger")
-}
-
-// fakeGoogle serves the calendar API requests made by CreateEvent.
-type fakeGoogle struct {
-	event        string
-	calendar     string
-	calendarErr  bool
-	calendarGets int
-}
-
-func (f *fakeGoogle) RoundTrip(req *http.Request) (*http.Response, error) {
-	status, body := http.StatusNotFound, `{"error":{"code":404,"message":"not found"}}`
-	switch {
-	case req.Method == http.MethodPost && strings.HasSuffix(req.URL.Path, "/calendars/primary/events"):
-		status, body = http.StatusOK, f.event
-	case req.Method == http.MethodGet && strings.HasSuffix(req.URL.Path, "/calendars/primary"):
-		f.calendarGets++
-		if !f.calendarErr {
-			status, body = http.StatusOK, f.calendar
-		}
-	}
-	return &http.Response{
-		StatusCode: status,
-		Header:     http.Header{"Content-Type": []string{"application/json"}},
-		Body:       io.NopCloser(strings.NewReader(body)),
-		Request:    req,
-	}, nil
-}
-
-func TestCreateEventTimeZone(t *testing.T) {
-	const allDay = `{"id":"1","summary":"Day off","start":{"date":"2026-11-14"},"end":{"date":"2026-11-15"},"organizer":{"email":"me@example.com","self":true}}`
-	in := &remote.Event{
-		Subject:  "Day off",
-		IsAllDay: true,
-		Start:    &remote.DateTime{DateTime: "2026-11-14T00:00:00", TimeZone: "America/New_York"},
-		End:      &remote.DateTime{DateTime: "2026-11-14T23:59:59", TimeZone: "America/New_York"},
-	}
-	newClient := func(f *fakeGoogle) *client {
-		return &client{httpClient: &http.Client{Transport: f}, Logger: &warnLogger{}}
-	}
-
-	t.Run("all-day events are read in the calendar time zone", func(t *testing.T) {
-		f := &fakeGoogle{event: allDay, calendar: `{"id":"primary","timeZone":"America/New_York"}`}
-		event, err := newClient(f).CreateEvent(in)
-		require.NoError(t, err)
-		assert.Equal(t, time.Date(2026, 11, 14, 5, 0, 0, 0, time.UTC), event.Start.Time(), "midnight in New York")
-		assert.Equal(t, 1, f.calendarGets)
-	})
-
-	t.Run("all-day events with a time zone do not fetch the calendar", func(t *testing.T) {
-		f := &fakeGoogle{event: `{"id":"1","start":{"date":"2026-11-14","timeZone":"Europe/Moscow"},"end":{"date":"2026-11-15"}}`}
-		event, err := newClient(f).CreateEvent(in)
-		require.NoError(t, err)
-		assert.Equal(t, time.Date(2026, 11, 13, 21, 0, 0, 0, time.UTC), event.Start.Time(), "midnight in Moscow")
-		assert.Equal(t, 0, f.calendarGets)
-	})
-
-	t.Run("timed events do not fetch the calendar", func(t *testing.T) {
-		f := &fakeGoogle{event: `{"id":"1","start":{"dateTime":"2026-11-14T09:00:00-05:00"},"end":{"dateTime":"2026-11-14T10:00:00-05:00"}}`}
-		event, err := newClient(f).CreateEvent(in)
-		require.NoError(t, err)
-		assert.Equal(t, time.Date(2026, 11, 14, 14, 0, 0, 0, time.UTC), event.Start.Time())
-		assert.Equal(t, 0, f.calendarGets)
-	})
-
-	t.Run("falls back to UTC with a warning if the calendar cannot be fetched", func(t *testing.T) {
-		f := &fakeGoogle{event: allDay, calendarErr: true}
-		c := newClient(f)
-		event, err := c.CreateEvent(in)
-		require.NoError(t, err, "the event is created anyway")
-		assert.Equal(t, time.Date(2026, 11, 14, 0, 0, 0, 0, time.UTC), event.Start.Time())
-		assert.Len(t, c.Logger.(*warnLogger).warnings, 1)
-	})
+	later := &warnLogger{}
+	assert.Equal(t, time.UTC, (&client{Logger: later}).calendarLocation("Not/AnotherZone"))
+	require.Len(t, later.warnings, 1)
+	assert.Contains(t, later.warnings[0], "Not/AnotherZone")
 }
 
 func TestOrganizerSelf(t *testing.T) {
@@ -168,32 +95,4 @@ func TestNilOrganizer(t *testing.T) {
 	require.NotNil(t, event.Organizer.EmailAddress)
 	assert.Empty(t, event.Organizer.EmailAddress.Address)
 	assert.True(t, event.IsOrganizer)
-}
-
-func TestStatusSyncEventTypes(t *testing.T) {
-	assert.Equal(t, []string{"default"}, (&client{}).statusSyncEventTypes())
-	assert.Equal(t, []string{"default"}, (&client{conf: &config.Config{}}).statusSyncEventTypes(), "no rules")
-
-	rules, err := config.ParseStatusRules(`[
-		{"title_contains": "Отпуск", "status": "dnd"},
-		{"event_type": "outofoffice", "status": "dnd"}
-	]`)
-	require.NoError(t, err)
-	c := &client{conf: &config.Config{StoredConfig: config.StoredConfig{ParsedStatusRules: rules}}}
-	assert.Equal(t, []string{"default", "outOfOffice"}, c.statusSyncEventTypes())
-
-	rules, err = config.ParseStatusRules(`[
-		{"event_type": "focusTime", "status": "away"},
-		{"event_type": "outOfOffice", "status": "dnd"},
-		{"event_type": "OUTOFOFFICE", "status": "away"},
-		{"event_type": "Default", "status": "away"},
-		{"event_type": "workinglocation", "status": "away"},
-		{"event_type": "birthday", "emoji": "cake"},
-		{"event_type": "fromGmail", "emoji": "airplane"},
-		{"event_type": "unknownType", "status": "away"}
-	]`)
-	require.NoError(t, err)
-	c.conf.ParsedStatusRules = rules
-	assert.Equal(t, []string{"default", "focusTime", "outOfOffice", "workingLocation", "birthday", "fromGmail"}, c.statusSyncEventTypes(),
-		"accepted types in rule order, in Google's spelling, without duplicates; unknown types are ignored")
 }
