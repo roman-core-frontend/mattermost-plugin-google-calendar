@@ -59,7 +59,8 @@ func (c *client) GetEventsBetweenDates(_ string, start, end time.Time) (events [
 
 	result, err := service.Events.
 		List(defaultCalendarName).
-		EventTypes("default").
+		// outOfOffice and focusTime events are needed for the status rules.
+		EventTypes(GoogleEventTypeDefault, GoogleEventTypeOutOfOffice, GoogleEventTypeFocusTime).
 		TimeMin(start.Format(time.RFC3339)).
 		TimeMax(end.Format(time.RFC3339)).
 		OrderBy("startTime").

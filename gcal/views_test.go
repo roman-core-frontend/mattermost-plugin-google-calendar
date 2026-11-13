@@ -46,6 +46,17 @@ func TestConvertGCalEventToRemoteEvent(t *testing.T) {
 			},
 		},
 		{
+			Name: "event type is converted",
+			In: func() calendar.Event {
+				evt := createMinimalCalendarEvent()
+				evt.EventType = GoogleEventTypeOutOfOffice
+				return evt
+			},
+			Check: func(t *testing.T, event *remote.Event) {
+				require.Equal(t, "outOfOffice", event.EventType)
+			},
+		},
+		{
 			Name: "conference data is extracted",
 			In: func() calendar.Event {
 				evt := createMinimalCalendarEvent()
