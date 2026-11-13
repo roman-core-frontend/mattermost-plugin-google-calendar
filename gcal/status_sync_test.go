@@ -96,3 +96,8 @@ func TestNilOrganizer(t *testing.T) {
 	assert.Empty(t, event.Organizer.EmailAddress.Address)
 	assert.True(t, event.IsOrganizer)
 }
+
+func TestStatusSyncEventTypes(t *testing.T) {
+	assert.Equal(t, []string{"default", "outOfOffice", "focusTime", "workingLocation", "birthday"}, statusSyncEventTypes)
+	assert.NotContains(t, statusSyncEventTypes, "fromGmail", "Gmail events would count as meetings without any rule")
+}

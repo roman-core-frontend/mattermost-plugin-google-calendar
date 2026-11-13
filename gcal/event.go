@@ -51,6 +51,25 @@ func (c *client) TentativelyAcceptEvent(eventID string) error {
 	return errors.New("gcal TentativelyAcceptEvent not implemented")
 }
 
+// Google-only event types, not used by the engine.
+const (
+	googleEventTypeWorkingLocation = "workingLocation"
+	googleEventTypeBirthday        = "birthday"
+)
+
+// statusSyncEventTypes are the event types fetched for status sync and reminders. Besides default events they
+// include the special types that status rules may match (by type or title); without a matching rule the engine
+// ignores them, since they have no guests or are shown as free, and it never sends reminders for them.
+// Events created by Gmail from emails (fromGmail: flights, reservations) are left out: they list the user as a
+// guest and are busy, so they would be treated as meetings even without any status rule.
+var statusSyncEventTypes = []string{
+	remote.EventTypeDefault,
+	remote.EventTypeOutOfOffice,
+	remote.EventTypeFocusTime,
+	googleEventTypeWorkingLocation,
+	googleEventTypeBirthday,
+}
+
 func (c *client) GetEventsBetweenDates(_ string, start, end time.Time) (events []*remote.Event, err error) {
 	ctx := context.Background()
 	service, err := calendar.NewService(ctx, option.WithHTTPClient(c.httpClient))
@@ -60,6 +79,7 @@ func (c *client) GetEventsBetweenDates(_ string, start, end time.Time) (events [
 
 	result, err := service.Events.
 		List(defaultCalendarName).
+		EventTypes(statusSyncEventTypes...).
 		TimeMin(start.Format(time.RFC3339)).
 		TimeMax(end.Format(time.RFC3339)).
 		OrderBy("startTime").
