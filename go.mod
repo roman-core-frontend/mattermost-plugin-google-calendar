@@ -88,4 +88,4 @@ require (
 	gopkg.in/yaml.v3 v3.0.1 // indirect
 )
 
-replace github.com/mattermost/mattermost-plugin-mscalendar => github.com/roman-core-frontend/mattermost-plugin-mscalendar v1.6.1-0.20261113154016-df0a0b40122c
+replace github.com/mattermost/mattermost-plugin-mscalendar => github.com/roman-core-frontend/mattermost-plugin-mscalendar v1.6.1-0.20261117134347-6c9c85ad1e6f
