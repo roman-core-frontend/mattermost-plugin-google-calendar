@@ -35,8 +35,25 @@ func (c *client) CreateEvent(in *remote.Event) (*remote.Event, error) {
 		return nil, errors.Wrap(err, "gcal CreateEvent")
 	}
 
-	// The plugin creates events with date-times, so there are no all-day dates to read in a time zone.
-	return convertGCalEventToRemoteEvent(resultEvent, time.UTC), nil
+	return convertGCalEventToRemoteEvent(resultEvent, c.createdEventLocation(resultEvent)), nil
+}
+
+// createdEventLocation returns the location to read the dates of a created event in. All-day events are created
+// with dates only, which Google treats as floating in the calendar time zone and returns without a time zone, so
+// the default calendar's time zone is used, as for every other path. Timed events carry an offset and need none.
+func (c *client) createdEventLocation(event *calendar.Event) *time.Location {
+	if event.Start == nil || event.Start.Date == "" {
+		return time.UTC
+	}
+	cal, err := c.getDefaultGoogleCalendar()
+	if err != nil {
+		// The event already exists in Google, so creating it does not fail because of this.
+		if c.Logger != nil {
+			c.Warnf("gcal: unable to load the default calendar, reading the created all-day event in UTC: %v", err)
+		}
+		return time.UTC
+	}
+	return c.calendarLocation(cal.TimeZone)
 }
 
 func (c *client) AcceptEvent(remoteUserID, eventID string) error {
