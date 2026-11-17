@@ -195,8 +195,8 @@ github.com/rogpeppe/go-internal v1.6.1/go.mod h1:xXDCJY+GAPziupqXw64V24skbSoqbTE
 github.com/rogpeppe/go-internal v1.8.0/go.mod h1:WmiCO8CzOY8rg0OYDC4/i/2WRWAB6poM+XZ2dLUbcbE=
 github.com/rogpeppe/go-internal v1.14.1 h1:UQB4HGPB6osV0SQTLymcB4TgvyWu6ZyliaW0tI/otEQ=
 github.com/rogpeppe/go-internal v1.14.1/go.mod h1:MaRKkUm5W0goXpeCfT7UZI6fk/L7L7so1lCWt35ZSgc=
-github.com/roman-core-frontend/mattermost-plugin-mscalendar v1.6.1-0.20261117134347-6c9c85ad1e6f h1:aWVc6rcihD8wai56qcNpGT+bRkdqfdnex3/feZNtTT0=
-github.com/roman-core-frontend/mattermost-plugin-mscalendar v1.6.1-0.20261117134347-6c9c85ad1e6f/go.mod h1:6u1cI71BW+CsUBbOYj8pMnXmg4EX68ulDoQ8SCE4/+s=
+github.com/roman-core-frontend/mattermost-plugin-mscalendar v1.6.1-0.20261117141610-40751051c3ba h1:PVnvsM0FdFdXhswi4qU+PDhSgdHZ3IKqEyVofplhhSo=
+github.com/roman-core-frontend/mattermost-plugin-mscalendar v1.6.1-0.20261117141610-40751051c3ba/go.mod h1:6u1cI71BW+CsUBbOYj8pMnXmg4EX68ulDoQ8SCE4/+s=
 github.com/rudderlabs/analytics-go v3.3.3+incompatible h1:OG0XlKoXfr539e2t1dXtTB+Gr89uFW+OUNQBVhHIIBY=
 github.com/rudderlabs/analytics-go v3.3.3+incompatible/go.mod h1:LF8/ty9kUX4PTY3l5c97K3nZZaX5Hwsvt+NBaRL/f30=
 github.com/russellhaering/goxmldsig v1.2.0/go.mod h1:gM4MDENBQf7M+V824SGfyIUVFWydB7n0KkEubVJl+Tw=

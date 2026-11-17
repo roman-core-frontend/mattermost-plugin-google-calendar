@@ -5,7 +5,7 @@
     "homepage_url": "https://github.com/mattermost/mattermost-plugin-google-calendar",
     "support_url": "https://github.com/mattermost/mattermost-plugin-google-calendar/issues",
     "icon_path": "assets/profile-gcal.svg",
-    "version": "1.6.0-status-rules.2",
+    "version": "1.6.0-status-rules.3",
     "min_server_version": "10.7.0",
     "server": {
         "executables": {
