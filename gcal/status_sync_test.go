@@ -84,8 +84,6 @@ func TestCalendarLocation(t *testing.T) {
 // fakeGoogle serves the calendar API requests made by CreateEvent.
 type fakeGoogle struct {
 	event        string
-	calendar     string
-	calendarErr  bool
 	calendarGets int
 }
 
@@ -96,9 +94,6 @@ func (f *fakeGoogle) RoundTrip(req *http.Request) (*http.Response, error) {
 		status, body = http.StatusOK, f.event
 	case req.Method == http.MethodGet && strings.HasSuffix(req.URL.Path, "/calendars/primary"):
 		f.calendarGets++
-		if !f.calendarErr {
-			status, body = http.StatusOK, f.calendar
-		}
 	}
 	return &http.Response{
 		StatusCode: status,
@@ -180,4 +175,7 @@ func TestStatusSyncEventTypes(t *testing.T) {
 	assert.Equal(t, []string{"default", "outOfOffice", "focusTime"},
 		withRules(`[{"event_type": "fromGmail", "status": "dnd"}]`).statusSyncEventTypes(),
 		"Gmail events are never fetched")
+	assert.Equal(t, []string{"default", "outOfOffice", "focusTime", "workingLocation", "birthday"},
+		withRules(`[{"event_type": "Birthday", "emoji": "cake"}, {"event_type": "WORKINGLOCATION", "status": "away"}]`).statusSyncEventTypes(),
+		"type names are matched case-insensitively, in a fixed order")
 }
