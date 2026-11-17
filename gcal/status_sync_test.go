@@ -12,6 +12,7 @@ import (
 	"github.com/stretchr/testify/require"
 	"google.golang.org/api/calendar/v3"
 
+	"github.com/mattermost/mattermost-plugin-mscalendar/calendar/config"
 	"github.com/mattermost/mattermost-plugin-mscalendar/calendar/utils/bot"
 )
 
@@ -45,6 +46,10 @@ func TestAllDayEventInCalendarTimeZone(t *testing.T) {
 }
 
 func TestCalendarLocation(t *testing.T) {
+	// The location cache is global: unique zone names keep the test repeatable in one process.
+	badZone := fmt.Sprintf("Not/AZone%d", time.Now().UnixNano())
+	otherBadZone := badZone + "Other"
+
 	logger := &warnLogger{}
 	c := &client{Logger: logger}
 
@@ -56,20 +61,20 @@ func TestCalendarLocation(t *testing.T) {
 	assert.Same(t, moscow, c.calendarLocation("Europe/Moscow"), "cached")
 	assert.Empty(t, logger.warnings)
 
-	assert.Equal(t, time.UTC, c.calendarLocation("Not/AZone"))
+	assert.Equal(t, time.UTC, c.calendarLocation(badZone))
 	require.Len(t, logger.warnings, 1)
-	assert.Contains(t, logger.warnings[0], "Not/AZone")
+	assert.Contains(t, logger.warnings[0], badZone)
 
-	assert.Equal(t, time.UTC, c.calendarLocation("Not/AZone"), "the fallback is cached")
-	assert.Equal(t, time.UTC, (&client{Logger: &warnLogger{}}).calendarLocation("Not/AZone"))
+	assert.Equal(t, time.UTC, c.calendarLocation(badZone), "the fallback is cached")
+	assert.Equal(t, time.UTC, (&client{Logger: &warnLogger{}}).calendarLocation(badZone))
 	assert.Len(t, logger.warnings, 1, "warned once per zone")
 
 	// A zone first seen by a client without a logger is still reported by the next client that has one.
-	assert.Equal(t, time.UTC, (&client{}).calendarLocation("Not/AnotherZone"), "no logger")
+	assert.Equal(t, time.UTC, (&client{}).calendarLocation(otherBadZone), "no logger")
 	later := &warnLogger{}
-	assert.Equal(t, time.UTC, (&client{Logger: later}).calendarLocation("Not/AnotherZone"))
+	assert.Equal(t, time.UTC, (&client{Logger: later}).calendarLocation(otherBadZone))
 	require.Len(t, later.warnings, 1)
-	assert.Contains(t, later.warnings[0], "Not/AnotherZone")
+	assert.Contains(t, later.warnings[0], otherBadZone)
 }
 
 func TestOrganizerSelf(t *testing.T) {
@@ -98,6 +103,21 @@ func TestNilOrganizer(t *testing.T) {
 }
 
 func TestStatusSyncEventTypes(t *testing.T) {
-	assert.Equal(t, []string{"default", "outOfOffice", "focusTime", "workingLocation", "birthday"}, statusSyncEventTypes)
-	assert.NotContains(t, statusSyncEventTypes, "fromGmail", "Gmail events would count as meetings without any rule")
+	withRules := func(raw string) *client {
+		rules, err := config.ParseStatusRules(raw)
+		require.NoError(t, err)
+		return &client{conf: &config.Config{StoredConfig: config.StoredConfig{ParsedStatusRules: rules}}}
+	}
+
+	assert.Equal(t, []string{"default"}, (&client{}).statusSyncEventTypes())
+	assert.Equal(t, []string{"default"}, (&client{conf: &config.Config{}}).statusSyncEventTypes(), "no rules")
+	assert.Equal(t, []string{"default", "outOfOffice", "focusTime"},
+		withRules(`[{"title_contains": "Отпуск", "status": "dnd"}]`).statusSyncEventTypes(),
+		"title rules may match out-of-office and focus time")
+	assert.Equal(t, []string{"default", "outOfOffice", "focusTime", "workingLocation"},
+		withRules(`[{"event_type": "workingLocation", "status": "away"}]`).statusSyncEventTypes(),
+		"working location only when named")
+	assert.Equal(t, []string{"default", "outOfOffice", "focusTime"},
+		withRules(`[{"event_type": "fromGmail", "status": "dnd"}]`).statusSyncEventTypes(),
+		"Gmail events are never fetched")
 }

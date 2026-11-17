@@ -5,6 +5,7 @@ package gcal
 
 import (
 	"context"
+	"strings"
 	"time"
 
 	"github.com/pkg/errors"
@@ -57,19 +58,6 @@ const (
 	googleEventTypeBirthday        = "birthday"
 )
 
-// statusSyncEventTypes are the event types fetched for status sync and reminders. Besides default events they
-// include the special types that status rules may match (by type or title); without a matching rule the engine
-// ignores them, since they have no guests or are shown as free, and it never sends reminders for them.
-// Events created by Gmail from emails (fromGmail: flights, reservations) are left out: they list the user as a
-// guest and are busy, so they would be treated as meetings even without any status rule.
-var statusSyncEventTypes = []string{
-	remote.EventTypeDefault,
-	remote.EventTypeOutOfOffice,
-	remote.EventTypeFocusTime,
-	googleEventTypeWorkingLocation,
-	googleEventTypeBirthday,
-}
-
 func (c *client) GetEventsBetweenDates(_ string, start, end time.Time) (events []*remote.Event, err error) {
 	ctx := context.Background()
 	service, err := calendar.NewService(ctx, option.WithHTTPClient(c.httpClient))
@@ -79,7 +67,7 @@ func (c *client) GetEventsBetweenDates(_ string, start, end time.Time) (events [
 
 	result, err := service.Events.
 		List(defaultCalendarName).
-		EventTypes(statusSyncEventTypes...).
+		EventTypes(c.statusSyncEventTypes()...).
 		TimeMin(start.Format(time.RFC3339)).
 		TimeMax(end.Format(time.RFC3339)).
 		OrderBy("startTime").
@@ -139,4 +127,29 @@ func convertRemoteDateTimeToGcalEventDateTime(in *remote.DateTime) *calendar.Eve
 	out.TimeZone = in.TimeZone
 
 	return out
+}
+
+// statusSyncEventTypes returns the event types fetched for status sync and reminders. Without status rules only
+// default events are fetched. With rules, out-of-office and focus time events are fetched too, since title rules may
+// match them. Working location and birthday events are fetched only when a rule names their type: otherwise a title
+// rule could match a colleague's birthday or the all-day working location and outrank real meetings. Events created
+// by Gmail from emails (fromGmail: flights, reservations) are never fetched: they list the user as a guest and are
+// busy, so they would be treated as meetings.
+func (c *client) statusSyncEventTypes() []string {
+	types := []string{remote.EventTypeDefault}
+	if c.conf == nil || len(c.conf.ParsedStatusRules) == 0 {
+		return types
+	}
+	types = append(types, remote.EventTypeOutOfOffice, remote.EventTypeFocusTime)
+
+	named := map[string]bool{}
+	for _, rule := range c.conf.ParsedStatusRules {
+		named[strings.ToLower(rule.EventType)] = true
+	}
+	for _, eventType := range []string{googleEventTypeWorkingLocation, googleEventTypeBirthday} {
+		if named[strings.ToLower(eventType)] {
+			types = append(types, eventType)
+		}
+	}
+	return types
 }
