@@ -120,4 +120,7 @@ func TestStatusSyncEventTypes(t *testing.T) {
 	assert.Equal(t, []string{"default", "outOfOffice", "focusTime"},
 		withRules(`[{"event_type": "fromGmail", "status": "dnd"}]`).statusSyncEventTypes(),
 		"Gmail events are never fetched")
+	assert.Equal(t, []string{"default", "outOfOffice", "focusTime", "workingLocation", "birthday"},
+		withRules(`[{"event_type": "Birthday", "emoji": "cake"}, {"event_type": "WORKINGLOCATION", "status": "away"}]`).statusSyncEventTypes(),
+		"type names are matched case-insensitively, in a fixed order")
 }

@@ -131,8 +131,8 @@ func convertRemoteDateTimeToGcalEventDateTime(in *remote.DateTime) *calendar.Eve
 
 // statusSyncEventTypes returns the event types fetched for status sync and reminders. Without status rules only
 // default events are fetched. With rules, out-of-office and focus time events are fetched too, since title rules may
-// match them. Working location and birthday events are fetched only when a rule names their type: otherwise a title
-// rule could match a colleague's birthday or the all-day working location and outrank real meetings. Events created
+// match them. Working location and birthday events are fetched only when a rule names their type (title rules never
+// match them, so fetching them otherwise would be wasted). Events created
 // by Gmail from emails (fromGmail: flights, reservations) are never fetched: they list the user as a guest and are
 // busy, so they would be treated as meetings.
 func (c *client) statusSyncEventTypes() []string {
@@ -142,13 +142,13 @@ func (c *client) statusSyncEventTypes() []string {
 	}
 	types = append(types, remote.EventTypeOutOfOffice, remote.EventTypeFocusTime)
 
-	named := map[string]bool{}
-	for _, rule := range c.conf.ParsedStatusRules {
-		named[strings.ToLower(rule.EventType)] = true
-	}
 	for _, eventType := range []string{googleEventTypeWorkingLocation, googleEventTypeBirthday} {
-		if named[strings.ToLower(eventType)] {
-			types = append(types, eventType)
+		for _, rule := range c.conf.ParsedStatusRules {
+			// Case-insensitive, as the engine matches event_type rules.
+			if strings.EqualFold(rule.EventType, eventType) {
+				types = append(types, eventType)
+				break
+			}
 		}
 	}
 	return types
